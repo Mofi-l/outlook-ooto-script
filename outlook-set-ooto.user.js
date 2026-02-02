@@ -25,6 +25,8 @@
 
     // Also set localStorage as backup (for same-domain detection)
     localStorage.setItem('ooto_script_installed', 'true');
+
+    GM_setValue('ooto_script_installed', 'true');
     
     // ============================================
     // OUTLOOK DIRECT PROVIDER
