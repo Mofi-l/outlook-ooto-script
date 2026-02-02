@@ -7,6 +7,8 @@
 // @match        https://outlook.office.com/*
 // @grant        GM.xmlHttpRequest
 // @grant        unsafeWindow
+// @grant        GM_setValue
+// @grant        GM_getValue
 // @downloadURL  https://raw.githubusercontent.com/Mofi-l/outlook-ooto-script/main/outlook-set-ooto.user.js
 // @updateURL    https://raw.githubusercontent.com/Mofi-l/outlook-ooto-script/main/outlook-set-ooto.user.js
 // ==/UserScript==
@@ -15,8 +17,13 @@
 
 (function() {
     'use strict';
+    
+    // Set cross-domain marker that Aura can detect
+    if (typeof GM_setValue !== 'undefined') {
+        GM_setValue('ooto_script_installed', 'true');
+    }
 
-    // To mark script as installed
+    // Also set localStorage as backup (for same-domain detection)
     localStorage.setItem('ooto_script_installed', 'true');
     
     // ============================================
