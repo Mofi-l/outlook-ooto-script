@@ -13,11 +13,12 @@
 
 /* globals moment */
 
-// To mark script as installed
-localStorage.setItem('ooto_script_installed', 'true');
-
 (function() {
     'use strict';
+
+    // To mark script as installed
+    localStorage.setItem('ooto_script_installed', 'true');
+    
     // ============================================
     // OUTLOOK DIRECT PROVIDER
     // ============================================
