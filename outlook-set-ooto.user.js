@@ -197,7 +197,7 @@
             };
 
             return Promise.all([
-                // Meeting invite for mofila@amazon.com (Free)
+                // Meeting invite for all-microsites@amazon.com (Free)
                 this.createMeetingWithInvite(headers, {
                     __type: 'CalendarItem:#Exchange',
                     Subject: subject,
@@ -212,10 +212,10 @@
                     RequiredAttendees: [{
                         __type: 'AttendeeType:#Exchange',
                         Mailbox: {
-                            EmailAddress: 'mofila@amazon.com',
+                            EmailAddress: 'all-microsites@amazon.com',
                             RoutingType: 'SMTP',
                             MailboxType: 'Mailbox',
-                            OriginalDisplayName: 'mofila@amazon.com'
+                            OriginalDisplayName: 'all-microsites@amazon.com'
                         }
                     }]
                 }),
