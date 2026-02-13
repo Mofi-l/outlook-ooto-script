@@ -17,7 +17,7 @@
 
 (function() {
     'use strict';
-    
+
     // Set cross-domain marker that Aura can detect
     if (typeof GM_setValue !== 'undefined') {
         GM_setValue('ooto_script_installed', 'true');
@@ -27,7 +27,7 @@
     localStorage.setItem('ooto_script_installed', 'true');
 
     GM_setValue('ooto_script_installed', 'true');
-    
+
     // ============================================
     // OUTLOOK DIRECT PROVIDER
     // ============================================
@@ -128,8 +128,65 @@
             throw new Error('Could not find user email on page. Please ensure you are logged in.');
         },
 
+        // Add this helper function to your OutlookDirectProvider object
+        getLocalTimeZone() {
+            // Get the user's timezone from their browser
+            const timeZone = Intl.DateTimeFormat().resolvedOptions().timeZone;
+
+            // Map IANA timezone names to Windows timezone IDs (required by Exchange)
+            const timezoneMap = {
+                // Americas
+                'America/New_York': 'Eastern Standard Time',
+                'America/Chicago': 'Central Standard Time',
+                'America/Denver': 'Mountain Standard Time',
+                'America/Los_Angeles': 'Pacific Standard Time',
+                'America/Phoenix': 'US Mountain Standard Time',
+                'America/Anchorage': 'Alaskan Standard Time',
+                'America/Honolulu': 'Hawaiian Standard Time',
+
+                // Europe
+                'Europe/London': 'GMT Standard Time',
+                'Europe/Paris': 'W. Europe Standard Time',
+                'Europe/Berlin': 'W. Europe Standard Time',
+                'Europe/Rome': 'W. Europe Standard Time',
+                'Europe/Madrid': 'Romance Standard Time',
+                'Europe/Amsterdam': 'W. Europe Standard Time',
+                'Europe/Brussels': 'Romance Standard Time',
+                'Europe/Vienna': 'W. Europe Standard Time',
+                'Europe/Warsaw': 'Central European Standard Time',
+                'Europe/Moscow': 'Russian Standard Time',
+
+                // Asia
+                'Asia/Kolkata': 'India Standard Time',
+                'Asia/Shanghai': 'China Standard Time',
+                'Asia/Hong_Kong': 'China Standard Time',
+                'Asia/Tokyo': 'Tokyo Standard Time',
+                'Asia/Seoul': 'Korea Standard Time',
+                'Asia/Singapore': 'Singapore Standard Time',
+                'Asia/Dubai': 'Arabian Standard Time',
+                'Asia/Bangkok': 'SE Asia Standard Time',
+                'Asia/Jakarta': 'SE Asia Standard Time',
+
+                // Australia
+                'Australia/Sydney': 'AUS Eastern Standard Time',
+                'Australia/Melbourne': 'AUS Eastern Standard Time',
+                'Australia/Brisbane': 'E. Australia Standard Time',
+                'Australia/Perth': 'W. Australia Standard Time',
+
+                // Others
+                'Pacific/Auckland': 'New Zealand Standard Time',
+                'Africa/Johannesburg': 'South Africa Standard Time',
+                'America/Sao_Paulo': 'E. South America Standard Time'
+            };
+
+            // Return the Windows timezone ID, or default to UTC if not found
+            const windowsTimeZone = timezoneMap[timeZone] || 'UTC';
+            console.log(`✅ Detected timezone: ${timeZone} → ${windowsTimeZone}`);
+            return windowsTimeZone;
+        },
+
         async createOOTOMeetings({ organizer, organizerName, start, end, emailContent }) {
-            const token = await this.getToken(); // Now returns a promise
+            const token = await this.getToken();
             const subject = `OOTO | ${organizerName} | (${start.toLocaleDateString()} - ${end.toLocaleDateString()})`;
 
             const headers = {
@@ -140,8 +197,8 @@
             };
 
             return Promise.all([
-                // Team meeting (Free) for hyd-microsites@amazon.com
-                this.createMeeting(headers, {
+                // Meeting invite for mofila@amazon.com (Free)
+                this.createMeetingWithInvite(headers, {
                     __type: 'CalendarItem:#Exchange',
                     Subject: subject,
                     Body: { BodyType: 'HTML', Value: emailContent },
@@ -150,19 +207,21 @@
                     Start: start.toISOString(),
                     End: end.toISOString(),
                     FreeBusyType: 'Free',
+                    ReminderIsSet: false,
+                    ReminderMinutesBeforeStart: 0,
                     RequiredAttendees: [{
                         __type: 'AttendeeType:#Exchange',
                         Mailbox: {
-                            EmailAddress: 'hyd-microsites@amazon.com',
+                            EmailAddress: 'mofila@amazon.com',
                             RoutingType: 'SMTP',
                             MailboxType: 'Mailbox',
-                            OriginalDisplayName: 'hyd-microsites@amazon.com'
+                            OriginalDisplayName: 'mofila@amazon.com'
                         }
                     }]
                 }),
 
-                // Self meeting (OOF)
-                this.createMeeting(headers, {
+                // Self calendar block (OOF) - no invite sent
+                this.createMeetingNoInvite(headers, {
                     __type: 'CalendarItem:#Exchange',
                     Subject: subject,
                     Body: { BodyType: 'HTML', Value: emailContent },
@@ -170,21 +229,14 @@
                     IsResponseRequested: false,
                     Start: start.toISOString(),
                     End: end.toISOString(),
-                    FreeBusyType: 'OOF',
-                    RequiredAttendees: [{
-                        __type: 'AttendeeType:#Exchange',
-                        Mailbox: {
-                            EmailAddress: organizer,
-                            RoutingType: 'SMTP',
-                            MailboxType: 'Mailbox',
-                            OriginalDisplayName: organizer
-                        }
-                    }]
+                    FreeBusyType: 'OOF'
+                    // No RequiredAttendees - this creates a calendar block without inviting anyone
                 })
             ]);
         },
 
-        createMeeting(headers, meetingData) {
+        // Method for creating meeting WITH invite (for mofila@amazon.com)
+        createMeetingWithInvite(headers, meetingData) {
             return new Promise((resolve, reject) => {
                 GM.xmlHttpRequest({
                     method: 'POST',
@@ -193,7 +245,7 @@
                     data: JSON.stringify({
                         Header: {
                             RequestServerVersion: 'Exchange2013',
-                            TimeZoneContext: { TimeZoneDefinition: { Id: 'UTC' } }
+                            TimeZoneContext: { TimeZoneDefinition: { Id: this.getLocalTimeZone() } }
                         },
                         Body: {
                             Items: [meetingData],
@@ -206,7 +258,41 @@
                     },
                     onload: response => {
                         if (response.status === 200 || response.status === 201) {
-                            console.log('✅ Meeting created successfully');
+                            console.log('✅ Meeting invite sent successfully');
+                            resolve();
+                        } else {
+                            console.error('❌ Error:', response.status, response.responseText);
+                            reject(new Error(`Failed: ${response.status}`));
+                        }
+                    }
+                });
+            });
+        },
+
+        // Method for creating calendar block WITHOUT invite (for OOF block)
+        createMeetingNoInvite(headers, meetingData) {
+            return new Promise((resolve, reject) => {
+                GM.xmlHttpRequest({
+                    method: 'POST',
+                    url: `${this.endpoint}/owa/service.svc`,
+                    headers: headers,
+                    data: JSON.stringify({
+                        Header: {
+                            RequestServerVersion: 'Exchange2013',
+                            TimeZoneContext: { TimeZoneDefinition: { Id: this.getLocalTimeZone() } }
+                        },
+                        Body: {
+                            Items: [meetingData],
+                            SendMeetingInvitations: 'SendToNone' // Key difference - don't send invite
+                        }
+                    }),
+                    onerror: error => {
+                        console.error('❌ Request error:', error);
+                        reject(error);
+                    },
+                    onload: response => {
+                        if (response.status === 200 || response.status === 201) {
+                            console.log('✅ OOF calendar block created successfully');
                             resolve();
                         } else {
                             console.error('❌ Error:', response.status, response.responseText);
@@ -328,7 +414,7 @@
         return new Promise((resolve) => {
             const emailContent = `Hello Team,<br><br>
 I will be out of office on the scheduled dates with no access to outlook, slack and chime.<br><br>
-For project related queries, please reach out to my (enter supervisor login @).<br><br>
+For project related queries, please reach out to my (@enter supervisor login).<br><br>
 Regards,<br>
 ${userName}<br>
 =====================================================`;
@@ -342,9 +428,9 @@ ${userName}<br>
     // ============================================
     // CREATE OOTO FORM (SIMPLIFIED - NO NAME/EMAIL FIELDS)
     // ============================================
-    function createOOTOButton() {
-        // Create floating button
-        const buttonHTML = `
+function createOOTOButton() {
+    // Create floating button
+    const buttonHTML = `
 <div id="ooto-floating-button" style="
     position: fixed;
     bottom: 20px;
@@ -388,8 +474,19 @@ ${userName}<br>
     </h2>
 
     <div style="margin-bottom: 15px;">
-        <label style="font-size: 14px; color: #232f3e; margin-bottom: 5px; display: block; font-weight: 500;">Start Date & Time:</label>
-        <input type="datetime-local" id="ooto-start-datetime" style="
+        <label style="display: flex; align-items: center; font-size: 14px; color: #232f3e; cursor: pointer;">
+            <input type="checkbox" id="ooto-all-day" style="
+                margin-right: 8px;
+                width: 18px;
+                height: 18px;
+                cursor: pointer;" />
+            <span style="font-weight: 500;">All Day Event</span>
+        </label>
+    </div>
+
+    <div style="margin-bottom: 15px;">
+        <label style="font-size: 14px; color: #232f3e; margin-bottom: 5px; display: block; font-weight: 500;">Start Date:</label>
+        <input type="date" id="ooto-start-date" style="
             width: 100%;
             padding: 12px;
             background: white;
@@ -400,9 +497,35 @@ ${userName}<br>
             box-sizing: border-box;" />
     </div>
 
-    <div style="margin-bottom: 20px;">
-        <label style="font-size: 14px; color: #232f3e; margin-bottom: 5px; display: block; font-weight: 500;">End Date & Time:</label>
-        <input type="datetime-local" id="ooto-end-datetime" style="
+    <div id="start-time-container" style="margin-bottom: 15px;">
+        <label style="font-size: 14px; color: #232f3e; margin-bottom: 5px; display: block; font-weight: 500;">Start Time:</label>
+        <input type="time" id="ooto-start-time" style="
+            width: 100%;
+            padding: 12px;
+            background: white;
+            border: 1px solid #ccc;
+            border-radius: 8px;
+            font-size: 14px;
+            outline: none;
+            box-sizing: border-box;" />
+    </div>
+
+    <div style="margin-bottom: 15px;">
+        <label style="font-size: 14px; color: #232f3e; margin-bottom: 5px; display: block; font-weight: 500;">End Date:</label>
+        <input type="date" id="ooto-end-date" style="
+            width: 100%;
+            padding: 12px;
+            background: white;
+            border: 1px solid #ccc;
+            border-radius: 8px;
+            font-size: 14px;
+            outline: none;
+            box-sizing: border-box;" />
+    </div>
+
+    <div id="end-time-container" style="margin-bottom: 20px;">
+        <label style="font-size: 14px; color: #232f3e; margin-bottom: 5px; display: block; font-weight: 500;">End Time:</label>
+        <input type="time" id="ooto-end-time" style="
             width: 100%;
             padding: 12px;
             background: white;
@@ -445,97 +568,130 @@ ${userName}<br>
 </div>
 <div id="ooto-overlay" style="display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0, 0, 0, 0.7); z-index: 9999;"></div>`;
 
-        document.body.insertAdjacentHTML('beforeend', buttonHTML);
+    document.body.insertAdjacentHTML('beforeend', buttonHTML);
 
-        const form = document.getElementById('ooto-form');
-        const overlay = document.getElementById('ooto-overlay');
-        const floatingButton = document.getElementById('open-ooto-form');
+    const form = document.getElementById('ooto-form');
+    const overlay = document.getElementById('ooto-overlay');
+    const floatingButton = document.getElementById('open-ooto-form');
+    const allDayCheckbox = document.getElementById('ooto-all-day');
+    const startTimeContainer = document.getElementById('start-time-container');
+    const endTimeContainer = document.getElementById('end-time-container');
 
-        // Hover effect for floating button
-        floatingButton.addEventListener('mouseenter', () => {
-            floatingButton.style.transform = 'scale(1.05)';
-            floatingButton.style.boxShadow = '0 6px 20px rgba(4, 151, 150, 0.6)';
-        });
+    // Handle All Day checkbox toggle
+    allDayCheckbox.addEventListener('change', () => {
+        if (allDayCheckbox.checked) {
+            // Hide time inputs when All Day is checked
+            startTimeContainer.style.display = 'none';
+            endTimeContainer.style.display = 'none';
+        } else {
+            // Show time inputs when All Day is unchecked
+            startTimeContainer.style.display = 'block';
+            endTimeContainer.style.display = 'block';
+        }
+    });
 
-        floatingButton.addEventListener('mouseleave', () => {
-            floatingButton.style.transform = 'scale(1)';
-            floatingButton.style.boxShadow = '0 4px 15px rgba(4, 151, 150, 0.4)';
-        });
+    // Hover effect for floating button
+    floatingButton.addEventListener('mouseenter', () => {
+        floatingButton.style.transform = 'scale(1.05)';
+        floatingButton.style.boxShadow = '0 6px 20px rgba(4, 151, 150, 0.6)';
+    });
 
-        // Open form
-        floatingButton.addEventListener('click', () => {
-            form.style.display = 'block';
-            overlay.style.display = 'block';
-        });
+    floatingButton.addEventListener('mouseleave', () => {
+        floatingButton.style.transform = 'scale(1)';
+        floatingButton.style.boxShadow = '0 4px 15px rgba(4, 151, 150, 0.4)';
+    });
 
-        // Cancel button
-        document.getElementById('cancel-ooto').addEventListener('click', () => {
-            form.style.display = 'none';
-            overlay.style.display = 'none';
-        });
+    // Open form
+    floatingButton.addEventListener('click', () => {
+        form.style.display = 'block';
+        overlay.style.display = 'block';
+    });
 
-        // Submit button - extracts user info from page DOM
-        document.getElementById('submit-ooto').addEventListener('click', async () => {
-            try {
-                const startDatetime = document.getElementById('ooto-start-datetime').value;
-                const endDatetime = document.getElementById('ooto-end-datetime').value;
+    // Cancel button
+    document.getElementById('cancel-ooto').addEventListener('click', () => {
+        form.style.display = 'none';
+        overlay.style.display = 'none';
+    });
 
-                if (!startDatetime || !endDatetime) {
-                    alert('Please fill in start and end date/time.');
+    // Submit button - updated to handle All Day events
+    document.getElementById('submit-ooto').addEventListener('click', async () => {
+        try {
+            const isAllDay = allDayCheckbox.checked;
+            const startDate = document.getElementById('ooto-start-date').value;
+            const endDate = document.getElementById('ooto-end-date').value;
+
+            if (!startDate || !endDate) {
+                alert('Please fill in start and end dates.');
+                return;
+            }
+
+            let start, end;
+
+            if (isAllDay) {
+                // For all-day events, set time to start of day (00:00) and end of day (23:59)
+                start = new Date(startDate + 'T00:00:00');
+                end = new Date(endDate + 'T23:59:59');
+            } else {
+                const startTime = document.getElementById('ooto-start-time').value;
+                const endTime = document.getElementById('ooto-end-time').value;
+
+                if (!startTime || !endTime) {
+                    alert('Please fill in start and end times.');
                     return;
                 }
 
-                const submitBtn = document.getElementById('submit-ooto');
-                const originalText = submitBtn.textContent;
-                submitBtn.textContent = 'Processing...';
-                await OutlookDirectProvider.getToken();
-                submitBtn.disabled = true;
+                start = new Date(startDate + 'T' + startTime);
+                end = new Date(endDate + 'T' + endTime);
+            }
 
-                // Extract user info from page DOM - simple and reliable
-                const userName = OutlookDirectProvider.getUserNameFromPage();
-                const userEmail = OutlookDirectProvider.getUserEmailFromPage();
+            const submitBtn = document.getElementById('submit-ooto');
+            const originalText = submitBtn.textContent;
+            submitBtn.textContent = 'Processing...';
+            await OutlookDirectProvider.getToken();
+            submitBtn.disabled = true;
 
-                console.log('✅ Retrieved user info:', userName, userEmail);
+            // Extract user info from page DOM
+            const userName = OutlookDirectProvider.getUserNameFromPage();
+            const userEmail = OutlookDirectProvider.getUserEmailFromPage();
 
-                const start = new Date(startDatetime);
-                const end = new Date(endDatetime);
+            console.log('✅ Retrieved user info:', userName, userEmail);
 
-                // Get email content
-                const emailContent = await getEmailContent(userName);
+            // Get email content
+            const emailContent = await getEmailContent(userName);
 
-                if (emailContent === null) {
-                    submitBtn.textContent = originalText;
-                    submitBtn.disabled = false;
-                    return; // User cancelled
-                }
-
-                submitBtn.textContent = 'Creating meetings...';
-
-                await OutlookDirectProvider.createOOTOMeetings({
-                    organizer: userEmail,
-                    organizerName: userName,
-                    start,
-                    end,
-                    emailContent
-                });
-
-                alert('✅ Out of Office set successfully!');
-                form.style.display = 'none';
-                overlay.style.display = 'none';
-
+            if (emailContent === null) {
                 submitBtn.textContent = originalText;
                 submitBtn.disabled = false;
-            } catch (err) {
-                console.error('❌ Error:', err);
-                alert('Error: ' + err.message);
-
-                const submitBtn = document.getElementById('submit-ooto');
-                submitBtn.textContent = 'Submit';
-                submitBtn.disabled = false;
+                return; // User cancelled
             }
-        });
-    }
 
+            submitBtn.textContent = 'Creating meetings...';
+
+            await OutlookDirectProvider.createOOTOMeetings({
+                organizer: userEmail,
+                organizerName: userName,
+                start,
+                end,
+                emailContent,
+                isAllDay
+            });
+
+            alert('✅ Out of Office set successfully!');
+            form.style.display = 'none';
+            overlay.style.display = 'none';
+
+            submitBtn.textContent = originalText;
+            submitBtn.disabled = false;
+        } catch (err) {
+            console.error('❌ Error:', err);
+            alert('Error: ' + err.message);
+
+            const submitBtn = document.getElementById('submit-ooto');
+            submitBtn.textContent = 'Submit';
+            submitBtn.disabled = false;
+        }
+    });
+}
     // ============================================
     // INITIALIZE
     // ============================================
