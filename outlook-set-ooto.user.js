@@ -18,37 +18,60 @@
 (function() {
     'use strict';
 
-        // Add this near the top of your script, after the IIFE starts
+    // Version check configuration
     const CURRENT_VERSION = '0.2';
     const VERSION_CHECK_URL = 'https://raw.githubusercontent.com/Mofi-l/outlook-ooto-script/main/version.json';
     const SCRIPT_INSTALL_URL = 'https://raw.githubusercontent.com/Mofi-l/outlook-ooto-script/main/outlook-set-ooto.user.js';
 
-    // Check for updates on script load
-    async function checkForUpdates() {
-        try {
-            // Only check once per day
-            const lastCheck = GM_getValue('last_version_check', 0);
-            const now = Date.now();
-            const oneDayMs = 24 * 60 * 60 * 1000;
+    // Check for updates
+    function checkForUpdates() {
+        const lastCheck = GM_getValue('last_version_check', 0);
+        const now = Date.now();
+        const oneDayMs = 24 * 60 * 60 * 1000;
 
-            if (now - lastCheck < oneDayMs) {
-                return; // Already checked today
+        console.log('🔍 Checking for updates...');
+        GM_setValue('last_version_check', now);
+
+        GM.xmlHttpRequest({
+            method: 'GET',
+            url: VERSION_CHECK_URL,
+            onload: function(response) {
+                if (response.status === 200) {
+                    try {
+                        const versionInfo = JSON.parse(response.responseText);
+                        console.log('📦 Latest version:', versionInfo.version, 'Current:', CURRENT_VERSION);
+
+                        if (versionInfo.version !== CURRENT_VERSION) {
+                            console.log('🆕 New version available!');
+                            showUpdateNotification(versionInfo);
+                        } else {
+                            console.log('✅ You have the latest version');
+                        }
+                    } catch (e) {
+                        console.error('❌ Error parsing version info:', e);
+                    }
+                }
+            },
+            onerror: function(error) {
+                console.log('❌ Update check failed:', error);
             }
-
-            GM_setValue('last_version_check', now);
-
-            // Fetch latest version info
-            const response = await fetch(VERSION_CHECK_URL);
-            const versionInfo = await response.json();
-
-            if (versionInfo.version !== CURRENT_VERSION) {
-                showUpdateNotification(versionInfo);
-            }
-        } catch (error) {
-            console.log('Could not check for updates:', error);
-        }
+        });
     }
 
+    // Call it when page loads
+    if (document.readyState === 'loading') {
+        document.addEventListener('DOMContentLoaded', () => {
+            setTimeout(() => {
+                checkForUpdates();
+                createOOTOButton();
+            }, 1000);
+        });
+    } else {
+        setTimeout(() => {
+            checkForUpdates();
+            createOOTOButton();
+        }, 1000);
+    }
     // Show update notification
     function showUpdateNotification(versionInfo) {
         const notificationHTML = `
