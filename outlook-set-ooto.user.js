@@ -23,7 +23,7 @@
     const VERSION_CHECK_URL = 'https://raw.githubusercontent.com/Mofi-l/outlook-ooto-script/main/version.json';
     const SCRIPT_INSTALL_URL = 'https://raw.githubusercontent.com/Mofi-l/outlook-ooto-script/main/outlook-set-ooto.user.js';
 
-    // Check for updates
+    // Check for updates (non-blocking)
     function checkForUpdates() {
         const lastCheck = GM_getValue('last_version_check', 0);
         const now = Date.now();
@@ -35,6 +35,7 @@
         GM.xmlHttpRequest({
             method: 'GET',
             url: VERSION_CHECK_URL,
+            timeout: 5000, // Add timeout to prevent hanging
             onload: function(response) {
                 if (response.status === 200) {
                     try {
@@ -54,80 +55,74 @@
             },
             onerror: function(error) {
                 console.log('❌ Update check failed:', error);
+            },
+            ontimeout: function() {
+                console.log('⏱️ Update check timed out');
             }
         });
     }
 
-    // Call it when page loads
-    if (document.readyState === 'loading') {
-        document.addEventListener('DOMContentLoaded', () => {
-            setTimeout(() => {
-                checkForUpdates();
-                createOOTOButton();
-            }, 1000);
-        });
-    } else {
-        setTimeout(() => {
-            checkForUpdates();
-            createOOTOButton();
-        }, 1000);
-    }
-
     // Show update notification
     function showUpdateNotification(versionInfo) {
+        // Remove any existing notification first
+        const existingNotification = document.getElementById('ooto-update-notification');
+        if (existingNotification) {
+            existingNotification.remove();
+        }
+
         const notificationHTML = `
-        <div id="ooto-update-notification" style="
-            position: fixed;
-            top: 20px;
-            right: 20px;
-            background: linear-gradient(135deg, #ff6b6b, #ff8e53);
-            color: white;
-            padding: 20px;
-            border-radius: 10px;
-            box-shadow: 0 4px 15px rgba(0, 0, 0, 0.3);
-            z-index: 10002;
-            max-width: 350px;
-            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;">
-            <div style="display: flex; align-items: center; margin-bottom: 10px;">
-                <span style="font-size: 24px; margin-right: 10px;">🔔</span>
-                <strong style="font-size: 16px;">Update Available!</strong>
-            </div>
-            <p style="margin: 10px 0; font-size: 14px;">
-                Version ${versionInfo.version} is now available.<br>
-                <small>Current: ${CURRENT_VERSION}</small>
-            </p>
-            <p style="margin: 10px 0; font-size: 13px; opacity: 0.9;">
-                ${versionInfo.description || 'New features and improvements'}
-            </p>
-            <div style="margin-top: 15px;">
-                <button id="update-now-btn" style="
-                    background: white;
-                    color: #ff6b6b;
-                    padding: 10px 20px;
-                    border: none;
-                    border-radius: 5px;
-                    cursor: pointer;
-                    font-weight: 600;
-                    margin-right: 10px;
-                    font-size: 14px;">
-                    Update Now
-                </button>
-                <button id="dismiss-update-btn" style="
-                    background: rgba(255, 255, 255, 0.2);
-                    color: white;
-                    padding: 10px 20px;
-                    border: none;
-                    border-radius: 5px;
-                    cursor: pointer;
-                    font-size: 14px;">
-                    Dismiss
-                </button>
-            </div>
-        </div>`;
+    <div id="ooto-update-notification" style="
+        position: fixed;
+        top: 20px;
+        right: 20px;
+        background: linear-gradient(135deg, #ff6b6b, #ff8e53);
+        color: white;
+        padding: 20px;
+        border-radius: 10px;
+        box-shadow: 0 4px 15px rgba(0, 0, 0, 0.3);
+        z-index: 10002;
+        max-width: 350px;
+        font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;">
+        <div style="display: flex; align-items: center; margin-bottom: 10px;">
+            <span style="font-size: 24px; margin-right: 10px;">🔔</span>
+            <strong style="font-size: 16px;">Update Available!</strong>
+        </div>
+        <p style="margin: 10px 0; font-size: 14px;">
+            Version ${versionInfo.version} is now available.<br>
+            <small>Current: ${CURRENT_VERSION}</small>
+        </p>
+        <p style="margin: 10px 0; font-size: 13px; opacity: 0.9;">
+            ${versionInfo.description || 'New features and improvements'}
+        </p>
+        <div style="margin-top: 15px;">
+            <button id="update-now-btn" style="
+                background: white;
+                color: #ff6b6b;
+                padding: 10px 20px;
+                border: none;
+                border-radius: 5px;
+                cursor: pointer;
+                font-weight: 600;
+                margin-right: 10px;
+                font-size: 14px;">
+                Update Now
+            </button>
+            <button id="dismiss-update-btn" style="
+                background: rgba(255, 255, 255, 0.2);
+                color: white;
+                padding: 10px 20px;
+                border: none;
+                border-radius: 5px;
+                cursor: pointer;
+                font-size: 14px;">
+                Dismiss
+            </button>
+        </div>
+    </div>`;
 
         document.body.insertAdjacentHTML('beforeend', notificationHTML);
 
-        // Use event delegation instead
+        // Use event delegation
         document.addEventListener('click', function handleUpdateClick(e) {
             if (e.target.id === 'update-now-btn') {
                 console.log('✅ Opening update URL:', SCRIPT_INSTALL_URL);
@@ -141,9 +136,19 @@
             }
         });
     }
-    
-    // Call this when the script initializes
-    checkForUpdates();
+
+    // Initialize - CRITICAL: Only call once
+    if (document.readyState === 'loading') {
+        document.addEventListener('DOMContentLoaded', () => {
+            setTimeout(() => {
+                checkForUpdates();
+            }, 1000);
+        });
+    } else {
+        setTimeout(() => {
+            checkForUpdates();
+        }, 1000);
+    }
 
     // Set cross-domain marker that Aura can detect
     if (typeof GM_setValue !== 'undefined') {
