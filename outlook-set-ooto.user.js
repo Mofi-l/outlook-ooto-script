@@ -72,6 +72,7 @@
             createOOTOButton();
         }, 1000);
     }
+
     // Show update notification
     function showUpdateNotification(versionInfo) {
         const notificationHTML = `
@@ -126,20 +127,32 @@
 
         document.body.insertAdjacentHTML('beforeend', notificationHTML);
 
-        const notification = document.getElementById('ooto-update-notification');
+        // Use setTimeout to ensure DOM is ready, or query after insertion
+        setTimeout(() => {
+            const notification = document.getElementById('ooto-update-notification');
+            const updateBtn = document.getElementById('update-now-btn');
+            const dismissBtn = document.getElementById('dismiss-update-btn');
 
-        // Update Now button - opens the script URL in Tampermonkey
-        document.getElementById('update-now-btn').addEventListener('click', () => {
-            window.open(SCRIPT_INSTALL_URL, '_blank');
-            notification.remove();
-        });
+            if (!notification || !updateBtn || !dismissBtn) {
+                console.error('❌ Could not find notification elements');
+                return;
+            }
 
-        // Dismiss button
-        document.getElementById('dismiss-update-btn').addEventListener('click', () => {
-            notification.remove();
-        });
+            // Update Now button - opens the script URL in Tampermonkey
+            updateBtn.addEventListener('click', () => {
+                console.log('✅ Opening update URL:', SCRIPT_INSTALL_URL);
+                window.open(SCRIPT_INSTALL_URL, '_blank');
+                notification.remove();
+            });
+
+            // Dismiss button
+            dismissBtn.addEventListener('click', () => {
+                console.log('✅ Dismissing update notification');
+                notification.remove();
+            });
+        }, 100); // Small delay to ensure DOM is ready
     }
-
+    
     // Call this when the script initializes
     checkForUpdates();
 
