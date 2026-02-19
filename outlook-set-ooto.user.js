@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Outlook Set OOTO
 // @namespace    https://amazon.com/
-// @version      0.1
+// @version      0.2
 // @description  Set Out of Office directly on Outlook
 // @author       @mofila
 // @match        https://outlook.office.com/*
@@ -66,38 +66,34 @@
             throw new Error('Could not find Outlook API token. Please refresh the page and try again.');
         },
 
-        // Extract name from page DOM - simple approach
-        getUserNameFromPage() {
-            // Method 1: Try to get name from the account details section
-            const nameElement = document.querySelector('#mectrl_currentAccount_primary, .mectrl_name');
-            if (nameElement && nameElement.textContent.trim()) {
-                return nameElement.textContent.trim();
-            }
+        async getUserInfoFromOutlookAPI() {
+            const token = this.getToken();
 
-            // Method 2: Search for name pattern in all divs
-            const allDivs = document.querySelectorAll('div');
-            for (let div of allDivs) {
-                const text = div.textContent.trim();
-                // Look for name pattern (e.g., "Mofil, Abdul")
-                if (/^[A-Z][a-z]+,\s[A-Z][a-z]+$/.test(text)) {
-                    console.log('✅ Found name in div:', text);
-                    return text;
-                }
-            }
-
-            // Method 3: Extract from email as fallback
-            try {
-                const email = this.getUserEmailFromPage();
-                const username = email.split('@');
-                // Capitalize first letter
-                const name = username.charAt(0).toUpperCase() + username.slice(1);
-                console.log('✅ Extracted name from email:', name);
-                return name;
-            } catch (e) {
-                return 'User'; // Final fallback
-            }
+            return new Promise((resolve, reject) => {
+                GM.xmlHttpRequest({
+                    method: 'GET',
+                    url: 'https://outlook.office.com/api/v2.0/me',
+                    headers: {
+                        'Authorization': `Bearer ${token}`,
+                        'Content-Type': 'application/json'
+                    },
+                    onload: response => {
+                        if (response.status === 200) {
+                            const userData = JSON.parse(response.responseText);
+                            console.log('✅ Retrieved user info from Outlook API:', userData);
+                            resolve({
+                                displayName: userData.DisplayName,
+                                email: userData.EmailAddress
+                            });
+                        } else {
+                            console.error('❌ Error:', response.status);
+                            reject(new Error(`Failed: ${response.status}`));
+                        }
+                    },
+                    onerror: error => reject(error)
+                });
+            });
         },
-
         // Extract email from page DOM
         getUserEmailFromPage() {
             // Method 1: Try the standard account details element
@@ -185,9 +181,8 @@
             return windowsTimeZone;
         },
 
-        async createOOTOMeetings({ organizer, organizerName, start, end, emailContent }) {
+        async createOOTOMeetings({ organizer, organizerName, start, end, emailContent, subject }) {
             const token = await this.getToken();
-            const subject = `OOTO | ${organizerName} | (${start.toLocaleDateString()} - ${end.toLocaleDateString()})`;
 
             const headers = {
                 'authorization': `Bearer ${token}`,
@@ -307,9 +302,9 @@
     // ============================================
     // EMAIL CONTENT DIALOG
     // ============================================
-    function showEmailContentDialog(emailContent, callback) {
+    function showEmailContentDialog(subject, emailContent, callback) {
         const plainTextContent = emailContent
-        .replace(/<br>/g, '')
+        .replace(/<br>/g, '\n')
         .replace(/<[^>]*>/g, '')
         .replace(/&nbsp;/g, ' ')
         .trim();
@@ -327,18 +322,37 @@
             box-shadow: 0 2px 10px rgba(0, 0, 0, 0.1);
             z-index: 10001;
             width: 600px;">
-            <h3 style="margin-top: 0; color: #232f3e;">Edit Email Content</h3>
-            <textarea id="email-content-editor" style="
-                width: 100%;
-                height: 300px;
-                margin: 10px 0;
-                padding: 10px;
-                border: 1px solid #ccc;
-                border-radius: 4px;
-                resize: vertical;
-                font-family: Arial, sans-serif;
-                font-size: 14px;
-                line-height: 1.4;">${plainTextContent}</textarea>
+            <h3 style="margin-top: 0; color: #232f3e;">Edit Meeting Details</h3>
+
+            <!-- Subject Line Field -->
+            <div style="margin-bottom: 15px;">
+                <label style="font-size: 14px; color: #232f3e; margin-bottom: 5px; display: block; font-weight: 500;">Subject Line:</label>
+                <input type="text" id="email-subject-editor" value="${subject}" style="
+                    width: 100%;
+                    padding: 10px;
+                    border: 1px solid #ccc;
+                    border-radius: 4px;
+                    font-family: Arial, sans-serif;
+                    font-size: 14px;
+                    box-sizing: border-box;" />
+            </div>
+
+            <!-- Email Body Field -->
+            <div style="margin-bottom: 15px;">
+                <label style="font-size: 14px; color: #232f3e; margin-bottom: 5px; display: block; font-weight: 500;">Email Body:</label>
+                <textarea id="email-content-editor" style="
+                    width: 100%;
+                    height: 250px;
+                    padding: 10px;
+                    border: 1px solid #ccc;
+                    border-radius: 4px;
+                    resize: vertical;
+                    font-family: Arial, sans-serif;
+                    font-size: 14px;
+                    line-height: 1.4;
+                    box-sizing: border-box;">${plainTextContent}</textarea>
+            </div>
+
             <div style="text-align: right; margin-top: 10px;">
                 <button id="cancel-edit" style="
                     margin-right: 10px;
@@ -380,6 +394,7 @@
         const dialog = document.getElementById('email-content-dialog');
         const overlay = document.getElementById('email-content-overlay');
         const editor = document.getElementById('email-content-editor');
+        const subjectEditor = document.getElementById('email-subject-editor');
 
         dialog.style.display = 'block';
         overlay.style.display = 'block';
@@ -396,31 +411,34 @@
 
         document.getElementById('send-without-edit').addEventListener('click', () => {
             closeDialog();
-            callback(emailContent);
+            callback({ subject, emailContent });
         });
 
         document.getElementById('save-and-send').addEventListener('click', () => {
+            const editedSubject = subjectEditor.value.trim();
             const editedContent = editor.value
-            .split(String.fromCharCode(10))
+            .split('\n')
             .map(line => line.trim())
             .join('<br>');
             closeDialog();
-            callback(editedContent);
+            callback({ subject: editedSubject, emailContent: editedContent });
         });
-
     }
 
-    function getEmailContent(userName) {
+
+    function getEmailContent(userName, organizerName, start, end) {
         return new Promise((resolve) => {
-            const emailContent = `Hello Team,<br><br>
-I will be out of office on the scheduled dates with no access to outlook, slack and chime.<br><br>
-For project related queries, please reach out to my (@enter supervisor login).<br><br>
-Regards,<br>
-${userName}<br>
+            const subject = `OOTO | ${organizerName} | (${start.toLocaleDateString()} - ${end.toLocaleDateString()})`;
+
+            const emailContent = `Hello Team,<br>
+I will be out of office on the scheduled dates with no access to outlook, slack and chime.<br>
+For project related queries, please reach out to my (@enter supervisor login).<br>
+Regards,
+${userName}
 =====================================================`;
 
-            showEmailContentDialog(emailContent, (content) => {
-                resolve(content);
+            showEmailContentDialog(subject, emailContent, (result) => {
+                resolve(result);
             });
         });
     }
@@ -428,9 +446,9 @@ ${userName}<br>
     // ============================================
     // CREATE OOTO FORM (SIMPLIFIED - NO NAME/EMAIL FIELDS)
     // ============================================
-function createOOTOButton() {
-    // Create floating button
-    const buttonHTML = `
+    function createOOTOButton() {
+        // Create floating button
+        const buttonHTML = `
 <div id="ooto-floating-button" style="
     position: fixed;
     bottom: 20px;
@@ -568,130 +586,135 @@ function createOOTOButton() {
 </div>
 <div id="ooto-overlay" style="display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0, 0, 0, 0.7); z-index: 9999;"></div>`;
 
-    document.body.insertAdjacentHTML('beforeend', buttonHTML);
+        document.body.insertAdjacentHTML('beforeend', buttonHTML);
 
-    const form = document.getElementById('ooto-form');
-    const overlay = document.getElementById('ooto-overlay');
-    const floatingButton = document.getElementById('open-ooto-form');
-    const allDayCheckbox = document.getElementById('ooto-all-day');
-    const startTimeContainer = document.getElementById('start-time-container');
-    const endTimeContainer = document.getElementById('end-time-container');
+        const form = document.getElementById('ooto-form');
+        const overlay = document.getElementById('ooto-overlay');
+        const floatingButton = document.getElementById('open-ooto-form');
+        const allDayCheckbox = document.getElementById('ooto-all-day');
+        const startTimeContainer = document.getElementById('start-time-container');
+        const endTimeContainer = document.getElementById('end-time-container');
 
-    // Handle All Day checkbox toggle
-    allDayCheckbox.addEventListener('change', () => {
-        if (allDayCheckbox.checked) {
-            // Hide time inputs when All Day is checked
-            startTimeContainer.style.display = 'none';
-            endTimeContainer.style.display = 'none';
-        } else {
-            // Show time inputs when All Day is unchecked
-            startTimeContainer.style.display = 'block';
-            endTimeContainer.style.display = 'block';
-        }
-    });
-
-    // Hover effect for floating button
-    floatingButton.addEventListener('mouseenter', () => {
-        floatingButton.style.transform = 'scale(1.05)';
-        floatingButton.style.boxShadow = '0 6px 20px rgba(4, 151, 150, 0.6)';
-    });
-
-    floatingButton.addEventListener('mouseleave', () => {
-        floatingButton.style.transform = 'scale(1)';
-        floatingButton.style.boxShadow = '0 4px 15px rgba(4, 151, 150, 0.4)';
-    });
-
-    // Open form
-    floatingButton.addEventListener('click', () => {
-        form.style.display = 'block';
-        overlay.style.display = 'block';
-    });
-
-    // Cancel button
-    document.getElementById('cancel-ooto').addEventListener('click', () => {
-        form.style.display = 'none';
-        overlay.style.display = 'none';
-    });
-
-    // Submit button - updated to handle All Day events
-    document.getElementById('submit-ooto').addEventListener('click', async () => {
-        try {
-            const isAllDay = allDayCheckbox.checked;
-            const startDate = document.getElementById('ooto-start-date').value;
-            const endDate = document.getElementById('ooto-end-date').value;
-
-            if (!startDate || !endDate) {
-                alert('Please fill in start and end dates.');
-                return;
-            }
-
-            let start, end;
-
-            if (isAllDay) {
-                // For all-day events, set time to start of day (00:00) and end of day (23:59)
-                start = new Date(startDate + 'T00:00:00');
-                end = new Date(endDate + 'T23:59:59');
+        // Handle All Day checkbox toggle
+        allDayCheckbox.addEventListener('change', () => {
+            if (allDayCheckbox.checked) {
+                // Hide time inputs when All Day is checked
+                startTimeContainer.style.display = 'none';
+                endTimeContainer.style.display = 'none';
             } else {
-                const startTime = document.getElementById('ooto-start-time').value;
-                const endTime = document.getElementById('ooto-end-time').value;
+                // Show time inputs when All Day is unchecked
+                startTimeContainer.style.display = 'block';
+                endTimeContainer.style.display = 'block';
+            }
+        });
 
-                if (!startTime || !endTime) {
-                    alert('Please fill in start and end times.');
+        // Hover effect for floating button
+        floatingButton.addEventListener('mouseenter', () => {
+            floatingButton.style.transform = 'scale(1.05)';
+            floatingButton.style.boxShadow = '0 6px 20px rgba(4, 151, 150, 0.6)';
+        });
+
+        floatingButton.addEventListener('mouseleave', () => {
+            floatingButton.style.transform = 'scale(1)';
+            floatingButton.style.boxShadow = '0 4px 15px rgba(4, 151, 150, 0.4)';
+        });
+
+        // Open form
+        floatingButton.addEventListener('click', () => {
+            form.style.display = 'block';
+            overlay.style.display = 'block';
+        });
+
+        // Cancel button
+        document.getElementById('cancel-ooto').addEventListener('click', () => {
+            form.style.display = 'none';
+            overlay.style.display = 'none';
+        });
+
+        // Submit button - updated to handle All Day events
+        document.getElementById('submit-ooto').addEventListener('click', async () => {
+            try {
+                const isAllDay = allDayCheckbox.checked;
+                const startDate = document.getElementById('ooto-start-date').value;
+                const endDate = document.getElementById('ooto-end-date').value;
+
+                if (!startDate || !endDate) {
+                    alert('Please fill in start and end dates.');
                     return;
                 }
 
-                start = new Date(startDate + 'T' + startTime);
-                end = new Date(endDate + 'T' + endTime);
-            }
+                let start, end;
 
-            const submitBtn = document.getElementById('submit-ooto');
-            const originalText = submitBtn.textContent;
-            submitBtn.textContent = 'Processing...';
-            await OutlookDirectProvider.getToken();
-            submitBtn.disabled = true;
+                if (isAllDay) {
+                    // For all-day events, set time to start of day (00:00) and end of day (23:59)
+                    start = new Date(startDate + 'T00:00:00');
+                    end = new Date(endDate + 'T23:59:59');
+                } else {
+                    const startTime = document.getElementById('ooto-start-time').value;
+                    const endTime = document.getElementById('ooto-end-time').value;
 
-            // Extract user info from page DOM
-            const userName = OutlookDirectProvider.getUserNameFromPage();
-            const userEmail = OutlookDirectProvider.getUserEmailFromPage();
+                    if (!startTime || !endTime) {
+                        alert('Please fill in start and end times.');
+                        return;
+                    }
 
-            console.log('✅ Retrieved user info:', userName, userEmail);
+                    start = new Date(startDate + 'T' + startTime);
+                    end = new Date(endDate + 'T' + endTime);
+                }
 
-            // Get email content
-            const emailContent = await getEmailContent(userName);
+                const submitBtn = document.getElementById('submit-ooto');
+                const originalText = submitBtn.textContent;
+                submitBtn.textContent = 'Processing...';
+                await OutlookDirectProvider.getToken();
+                submitBtn.disabled = true;
 
-            if (emailContent === null) {
+                // AWAIT the API call to get user info
+                const userInfo = await OutlookDirectProvider.getUserInfoFromOutlookAPI();
+                const userName = userInfo.displayName;
+                const userEmail = userInfo.email;
+
+                console.log('✅ Retrieved user info:', userName, userEmail);
+
+                // Get email content
+                // Get email content with subject
+                const result = await getEmailContent(userName, userName, start, end);
+
+                if (result === null) {
+                    submitBtn.textContent = originalText;
+                    submitBtn.disabled = false;
+                    return; // User cancelled
+                }
+
+                const { subject, emailContent } = result;
+
+                submitBtn.textContent = 'Creating meetings...';
+
+                await OutlookDirectProvider.createOOTOMeetings({
+                    organizer: userEmail,
+                    organizerName: userName,
+                    start,
+                    end,
+                    emailContent,
+                    subject,
+                    isAllDay
+                });
+
+                alert('✅ Out of Office set successfully!');
+                form.style.display = 'none';
+                overlay.style.display = 'none';
+
                 submitBtn.textContent = originalText;
                 submitBtn.disabled = false;
-                return; // User cancelled
+            } catch (err) {
+                console.error('❌ Error:', err);
+                alert('Error: ' + err.message);
+
+                const submitBtn = document.getElementById('submit-ooto');
+                submitBtn.textContent = 'Submit';
+                submitBtn.disabled = false;
             }
-
-            submitBtn.textContent = 'Creating meetings...';
-
-            await OutlookDirectProvider.createOOTOMeetings({
-                organizer: userEmail,
-                organizerName: userName,
-                start,
-                end,
-                emailContent,
-                isAllDay
-            });
-
-            alert('✅ Out of Office set successfully!');
-            form.style.display = 'none';
-            overlay.style.display = 'none';
-
-            submitBtn.textContent = originalText;
-            submitBtn.disabled = false;
-        } catch (err) {
-            console.error('❌ Error:', err);
-            alert('Error: ' + err.message);
-
-            const submitBtn = document.getElementById('submit-ooto');
-            submitBtn.textContent = 'Submit';
-            submitBtn.disabled = false;
-        }
-    });
-}
+        });
+    }
     // ============================================
     // INITIALIZE
     // ============================================
