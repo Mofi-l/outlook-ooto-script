@@ -127,30 +127,19 @@
 
         document.body.insertAdjacentHTML('beforeend', notificationHTML);
 
-        // Use setTimeout to ensure DOM is ready, or query after insertion
-        setTimeout(() => {
-            const notification = document.getElementById('ooto-update-notification');
-            const updateBtn = document.getElementById('update-now-btn');
-            const dismissBtn = document.getElementById('dismiss-update-btn');
-
-            if (!notification || !updateBtn || !dismissBtn) {
-                console.error('❌ Could not find notification elements');
-                return;
-            }
-
-            // Update Now button - opens the script URL in Tampermonkey
-            updateBtn.addEventListener('click', () => {
+        // Use event delegation instead
+        document.addEventListener('click', function handleUpdateClick(e) {
+            if (e.target.id === 'update-now-btn') {
                 console.log('✅ Opening update URL:', SCRIPT_INSTALL_URL);
                 window.open(SCRIPT_INSTALL_URL, '_blank');
-                notification.remove();
-            });
-
-            // Dismiss button
-            dismissBtn.addEventListener('click', () => {
+                document.getElementById('ooto-update-notification')?.remove();
+                document.removeEventListener('click', handleUpdateClick);
+            } else if (e.target.id === 'dismiss-update-btn') {
                 console.log('✅ Dismissing update notification');
-                notification.remove();
-            });
-        }, 100); // Small delay to ensure DOM is ready
+                document.getElementById('ooto-update-notification')?.remove();
+                document.removeEventListener('click', handleUpdateClick);
+            }
+        });
     }
     
     // Call this when the script initializes
