@@ -1,0 +1,10 @@
+{
+  "version": "0.2",
+  "description": "Added subject line editing and improved user name detection",
+  "releaseDate": "2026-02-19",
+  "changelog": [
+    "✨ Users can now edit subject line before sending",
+    "🔧 Fixed user name detection using Outlook API",
+    "🐛 Bug fixes and improvements"
+  ]
+}
