@@ -409,10 +409,10 @@
                     RequiredAttendees: [{
                         __type: 'AttendeeType:#Exchange',
                         Mailbox: {
-                            EmailAddress: 'mofila@amazon.com',
+                            EmailAddress: 'all-microsites@amazon.com',
                             RoutingType: 'SMTP',
                             MailboxType: 'Mailbox',
-                            OriginalDisplayName: 'mofila@amazon.com'
+                            OriginalDisplayName: 'all-microsites@amazon.com'
                         }
                     }]
                 }),
