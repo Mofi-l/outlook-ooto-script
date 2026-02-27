@@ -1,14 +1,15 @@
 // ==UserScript==
 // @name         Outlook Set OOTO
 // @namespace    https://amazon.com/
-// @version      0.2
-// @description  Set Out of Office directly on Outlook
+// @version      0.3
+// @description  Auto-create OOTO from Aura parameters
 // @author       @mofila
 // @match        https://outlook.office.com/*
-// @grant        GM.xmlHttpRequest
 // @grant        unsafeWindow
 // @grant        GM_setValue
 // @grant        GM_getValue
+// @grant        GM.xmlHttpRequest
+// @grant        GM_xmlhttpRequest
 // @downloadURL  https://raw.githubusercontent.com/Mofi-l/outlook-ooto-script/main/outlook-set-ooto.user.js
 // @updateURL    https://raw.githubusercontent.com/Mofi-l/outlook-ooto-script/main/outlook-set-ooto.user.js
 // ==/UserScript==
@@ -18,8 +19,12 @@
 (function() {
     'use strict';
 
+    // REQUIRED: Set installation marker for Aura to detect
+    window.OUTLOOK_OOTO_SCRIPT_INSTALLED = true;
+    console.log('[Outlook OOTO] Script loaded and marker set');
+
     // Version check configuration
-    const CURRENT_VERSION = '0.2';
+    const CURRENT_VERSION = '0.3';
     const VERSION_CHECK_URL = 'https://raw.githubusercontent.com/Mofi-l/outlook-ooto-script/main/version.json';
     const SCRIPT_INSTALL_URL = 'https://raw.githubusercontent.com/Mofi-l/outlook-ooto-script/main/outlook-set-ooto.user.js';
 
@@ -32,7 +37,9 @@
         console.log('🔍 Checking for updates...');
         GM_setValue('last_version_check', now);
 
-        GM.xmlHttpRequest({
+        const gmRequest = typeof GM !== 'undefined' && GM.xmlHttpRequest ? GM.xmlHttpRequest : GM_xmlhttpRequest;
+
+        gmRequest({
             method: 'GET',
             url: VERSION_CHECK_URL,
             timeout: 5000, // Add timeout to prevent hanging
@@ -166,6 +173,49 @@
     const OutlookDirectProvider = {
         name: 'Outlook Direct Provider',
         endpoint: 'https://outlook.office.com',
+        isReady: false,
+        userInfo: null,
+
+        // Initialize provider
+        async initialize() {
+            try {
+                console.log('🔧 Initializing OutlookDirectProvider...');
+                this.userInfo = await this.getUserInfoFromOutlookAPI();
+                this.isReady = true;
+                console.log('✅ OutlookDirectProvider ready');
+            } catch (error) {
+                console.warn('⚠️ Could not get user info from API, will use page extraction:', error);
+                // Fallback to page extraction
+                try {
+                    const email = this.getUserEmailFromPage();
+                    const name = this.getUserNameFromPage();
+                    this.userInfo = { email, displayName: name };
+                    this.isReady = true;
+                    console.log('✅ OutlookDirectProvider ready (using page data)');
+                } catch (pageError) {
+                    console.error('❌ Failed to initialize:', pageError);
+                    this.isReady = false;
+                }
+            }
+        },
+
+        // Get user email (convenience method)
+        getUserEmail() {
+            if (!this.isReady || !this.userInfo) {
+                // Fallback to page extraction if not initialized
+                return this.getUserEmailFromPage();
+            }
+            return this.userInfo.email;
+        },
+
+        // Get user name (convenience method)
+        getUserName() {
+            if (!this.isReady || !this.userInfo) {
+                // Fallback to page extraction if not initialized
+                return this.getUserNameFromPage();
+            }
+            return this.userInfo.displayName;
+        },
 
         // Get token from localStorage
         getToken() {
@@ -201,8 +251,10 @@
         async getUserInfoFromOutlookAPI() {
             const token = this.getToken();
 
+            const gmRequest = typeof GM !== 'undefined' && GM.xmlHttpRequest ? GM.xmlHttpRequest : GM_xmlhttpRequest;
+
             return new Promise((resolve, reject) => {
-                GM.xmlHttpRequest({
+                gmRequest({
                     method: 'GET',
                     url: 'https://outlook.office.com/api/v2.0/me',
                     headers: {
@@ -249,11 +301,29 @@
             const bodyText = document.body.innerHTML;
             const emailMatch = bodyText.match(/([a-zA-Z0-9._-]+@amazon\.com)/);
             if (emailMatch) {
-                console.log('✅ Found email in HTML:', emailMatch);
-                return emailMatch;
+                console.log('✅ Found email in HTML:', emailMatch[1]);
+                return emailMatch[1];
             }
 
             throw new Error('Could not find user email on page. Please ensure you are logged in.');
+        },
+
+        // Extract user name from page DOM
+        getUserNameFromPage() {
+            // Method 1: Try the standard account details element
+            const nameElement = document.querySelector('#mectrl_currentAccount_primary');
+            if (nameElement && nameElement.textContent.trim()) {
+                return nameElement.textContent.trim();
+            }
+
+            // Method 2: Try to get from email (fallback)
+            try {
+                const email = this.getUserEmailFromPage();
+                const username = email.split('@')[0];
+                return username.charAt(0).toUpperCase() + username.slice(1);
+            } catch (e) {
+                return 'User';
+            }
         },
 
         // Add this helper function to your OutlookDirectProvider object
@@ -339,10 +409,10 @@
                     RequiredAttendees: [{
                         __type: 'AttendeeType:#Exchange',
                         Mailbox: {
-                            EmailAddress: 'all-microsites@amazon.com',
+                            EmailAddress: 'mofila@amazon.com',
                             RoutingType: 'SMTP',
                             MailboxType: 'Mailbox',
-                            OriginalDisplayName: 'all-microsites@amazon.com'
+                            OriginalDisplayName: 'mofila@amazon.com'
                         }
                     }]
                 }),
@@ -364,8 +434,10 @@
 
         // Method for creating meeting WITH invite (for mofila@amazon.com)
         createMeetingWithInvite(headers, meetingData) {
+            const gmRequest = typeof GM !== 'undefined' && GM.xmlHttpRequest ? GM.xmlHttpRequest : GM_xmlhttpRequest;
+
             return new Promise((resolve, reject) => {
-                GM.xmlHttpRequest({
+                gmRequest({
                     method: 'POST',
                     url: `${this.endpoint}/owa/service.svc`,
                     headers: headers,
@@ -398,8 +470,10 @@
 
         // Method for creating calendar block WITHOUT invite (for OOF block)
         createMeetingNoInvite(headers, meetingData) {
+            const gmRequest = typeof GM !== 'undefined' && GM.xmlHttpRequest ? GM.xmlHttpRequest : GM_xmlhttpRequest;
+
             return new Promise((resolve, reject) => {
-                GM.xmlHttpRequest({
+                gmRequest({
                     method: 'POST',
                     url: `${this.endpoint}/owa/service.svc`,
                     headers: headers,
@@ -718,6 +792,7 @@ ${userName}
 </div>
 <div id="ooto-overlay" style="display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0, 0, 0, 0.7); z-index: 9999;"></div>`;
 
+
         document.body.insertAdjacentHTML('beforeend', buttonHTML);
 
         const form = document.getElementById('ooto-form');
@@ -832,6 +907,21 @@ ${userName}
                 });
 
                 alert('✅ Out of Office set successfully!');
+
+                // Sync with Aura S3
+                try {
+                    await saveOOTOToS3({
+                        organizer: userEmail,
+                        startDate: start.toISOString().split('T')[0],
+                        endDate: end.toISOString().split('T')[0],
+                        startTime: isAllDay ? '00:00' : start.toTimeString().split(' ')[0].substring(0, 5),
+                        endTime: isAllDay ? '23:59' : end.toTimeString().split(' ')[0].substring(0, 5)
+                    });
+                } catch (syncError) {
+                    console.error('Aura sync error:', syncError);
+                    // Don't fail the whole operation if sync fails
+                }
+
                 form.style.display = 'none';
                 overlay.style.display = 'none';
 
@@ -847,19 +937,506 @@ ${userName}
             }
         });
     }
+
+    // ============================================
+    // AURA S3 SYNC FUNCTIONS
+    // ============================================
+
+    // Helper: Generate date range
+    function getDateRange(startDate, endDate) {
+        const dates = [];
+        const current = new Date(startDate);
+        const end = new Date(endDate);
+
+        while (current <= end) {
+            dates.push(current.toISOString().split('T')[0]);
+            current.setDate(current.getDate() + 1);
+        }
+
+        return dates;
+    }
+
+    // Helper: Show notification
+    function showNotification(message, type = 'success') {
+        const notification = document.createElement('div');
+        notification.style.cssText = `
+            position: fixed;
+            top: 20px;
+            right: 20px;
+            padding: 15px 20px;
+            background: ${type === 'success' ? '#10b981' : type === 'warning' ? '#f59e0b' : '#ef4444'};
+            color: white;
+            border-radius: 8px;
+            z-index: 100000;
+            box-shadow: 0 4px 12px rgba(0,0,0,0.3);
+            font-size: 14px;
+            max-width: 300px;
+        `;
+        notification.textContent = message;
+        document.body.appendChild(notification);
+
+        setTimeout(() => notification.remove(), 5000);
+    }
+
+    // ============================================
+    // SDK LOADING FUNCTIONS (Using GM_xmlhttpRequest to bypass CSP)
+    // ============================================
+
+    function loadCognitoSdk() {
+        return new Promise((resolve, reject) => {
+            // Check if already loaded
+            if (typeof AmazonCognitoIdentity !== 'undefined') {
+                console.log('✅ Amazon Cognito SDK already loaded');
+                resolve();
+                return;
+            }
+
+            // Check unsafeWindow
+            if (typeof unsafeWindow !== 'undefined' && unsafeWindow.AmazonCognitoIdentity) {
+                window.AmazonCognitoIdentity = unsafeWindow.AmazonCognitoIdentity;
+                console.log('✅ Found Cognito SDK in unsafeWindow');
+                resolve();
+                return;
+            }
+
+            console.log('📦 Loading Amazon Cognito SDK via GM_xmlhttpRequest...');
+
+            const gmRequest = typeof GM_xmlhttpRequest !== 'undefined' ? GM_xmlhttpRequest :
+                             (typeof GM !== 'undefined' && GM.xmlHttpRequest ? GM.xmlHttpRequest : null);
+
+            if (!gmRequest) {
+                console.error('❌ GM_xmlhttpRequest not available');
+                reject(new Error('GM_xmlhttpRequest not available'));
+                return;
+            }
+
+            gmRequest({
+                method: 'GET',
+                url: 'https://cdnjs.cloudflare.com/ajax/libs/amazon-cognito-identity-js/5.2.1/amazon-cognito-identity.min.js',
+                onload: function(response) {
+                    try {
+                        // Inject the script into the page
+                        const script = document.createElement('script');
+                        script.textContent = response.responseText;
+                        document.head.appendChild(script);
+
+                        setTimeout(() => {
+                            if (typeof AmazonCognitoIdentity !== 'undefined') {
+                                console.log('✅ Amazon Cognito SDK loaded successfully');
+                                resolve();
+                            } else if (typeof unsafeWindow !== 'undefined' && unsafeWindow.AmazonCognitoIdentity) {
+                                window.AmazonCognitoIdentity = unsafeWindow.AmazonCognitoIdentity;
+                                console.log('✅ Found Cognito SDK in unsafeWindow after injection');
+                                resolve();
+                            } else {
+                                console.error('❌ Cognito SDK injected but not accessible');
+                                reject(new Error('Cognito SDK injected but not accessible'));
+                            }
+                        }, 500);
+                    } catch (error) {
+                        console.error('❌ Error injecting Cognito SDK:', error);
+                        reject(error);
+                    }
+                },
+                onerror: function(error) {
+                    console.error('❌ Failed to fetch Cognito SDK:', error);
+                    reject(new Error('Failed to fetch Cognito SDK'));
+                }
+            });
+        });
+    }
+
+    async function loadAwsSdk() {
+        return new Promise((resolve, reject) => {
+            // Check if already loaded
+            if (typeof AWS !== 'undefined' && AWS.S3) {
+                console.log('✅ AWS SDK already loaded and AWS.S3 is available');
+                resolve();
+                return;
+            }
+
+            // Check unsafeWindow
+            if (typeof unsafeWindow !== 'undefined' && unsafeWindow.AWS && unsafeWindow.AWS.S3) {
+                window.AWS = unsafeWindow.AWS;
+                console.log('✅ Found AWS SDK in unsafeWindow');
+                resolve();
+                return;
+            }
+
+            console.log('📦 Loading AWS SDK via GM_xmlhttpRequest...');
+
+            const gmRequest = typeof GM_xmlhttpRequest !== 'undefined' ? GM_xmlhttpRequest :
+                             (typeof GM !== 'undefined' && GM.xmlHttpRequest ? GM.xmlHttpRequest : null);
+
+            if (!gmRequest) {
+                console.error('❌ GM_xmlhttpRequest not available');
+                reject(new Error('GM_xmlhttpRequest not available'));
+                return;
+            }
+
+            gmRequest({
+                method: 'GET',
+                url: 'https://sdk.amazonaws.com/js/aws-sdk-2.1109.0.min.js',
+                onload: function(response) {
+                    try {
+                        // Inject the script into the page
+                        const script = document.createElement('script');
+                        script.textContent = response.responseText;
+                        document.head.appendChild(script);
+
+                        setTimeout(() => {
+                            if (typeof AWS !== 'undefined' && AWS.S3) {
+                                console.log('✅ AWS SDK loaded successfully');
+                                resolve();
+                            } else if (typeof unsafeWindow !== 'undefined' && unsafeWindow.AWS && unsafeWindow.AWS.S3) {
+                                window.AWS = unsafeWindow.AWS;
+                                console.log('✅ Found AWS SDK in unsafeWindow after injection');
+                                resolve();
+                            } else {
+                                console.error('❌ AWS SDK injected but not accessible');
+                                reject(new Error('AWS SDK injected but not accessible'));
+                            }
+                        }, 500);
+                    } catch (error) {
+                        console.error('❌ Error injecting AWS SDK:', error);
+                        reject(error);
+                    }
+                },
+                onerror: function(error) {
+                    console.error('❌ Failed to fetch AWS SDK:', error);
+                    reject(new Error('Failed to fetch AWS SDK'));
+                }
+            });
+        });
+    }
+
+    // ============================================
+    // AUTHENTICATION
+    // ============================================
+
+    // Authenticate with Cognito (same as Aura)
+    async function authenticateWithCognito() {
+        return new Promise(async (resolve, reject) => {
+            try {
+                // Load Cognito SDK first
+                await loadCognitoSdk();
+
+                if (typeof AmazonCognitoIdentity === 'undefined') {
+                    throw new Error('Cognito SDK failed to load');
+                }
+
+                // Try to get stored credentials first
+                const storedUsername = GM_getValue('aura_username', '');
+                const storedToken = GM_getValue('aura_token', '');
+                const tokenExpiry = GM_getValue('aura_token_expiry', 0);
+
+                // Check if token is still valid (within 1 hour)
+                if (storedToken && Date.now() < tokenExpiry) {
+                    console.log('✅ Using stored Aura credentials');
+                    resolve(storedToken);
+                    return;
+                }
+
+                // Get username from Outlook email automatically
+                const userEmail = await OutlookDirectProvider.getUserEmail();
+                const username = userEmail.split('@')[0];
+
+                console.log(`🔐 Authenticating as: ${username}`);
+
+                // Need password
+                const password = prompt(`Enter Aura password for ${username}:`);
+                if (!password) {
+                    reject(new Error('Password required for Aura sync'));
+                    return;
+                }
+
+                const authenticationData = {
+                    Username: username,
+                    Password: password,
+                };
+
+                const authenticationDetails = new AmazonCognitoIdentity.AuthenticationDetails(authenticationData);
+
+                const poolData = {
+                    UserPoolId: 'eu-north-1_V9kLPNVXl',
+                    ClientId: '68caeoofa7hl7p7pvs65bb2hrv'
+                };
+
+                const userPool = new AmazonCognitoIdentity.CognitoUserPool(poolData);
+                const userData = { Username: username, Pool: userPool };
+                const cognitoUser = new AmazonCognitoIdentity.CognitoUser(userData);
+
+                cognitoUser.authenticateUser(authenticationDetails, {
+                    onSuccess: (result) => {
+                        const token = result.getIdToken().getJwtToken();
+
+                        // Store credentials for 1 hour
+                        GM_setValue('aura_username', username);
+                        GM_setValue('aura_token', token);
+                        GM_setValue('aura_token_expiry', Date.now() + 3600000); // 1 hour
+
+                        console.log('✅ Aura authentication successful');
+                        resolve(token);
+                    },
+                    onFailure: (err) => {
+                        console.error('❌ Aura authentication failed:', err);
+                        reject(err);
+                    }
+                });
+            } catch (error) {
+                reject(error);
+            }
+        });
+    }
+
+    // Save OOTO to S3 for Aura sync
+    async function saveOOTOToS3(meetingData) {
+        try {
+            console.log('💾 Saving OOTO to Aura S3...');
+            showNotification('Syncing with Aura...', 'success');
+
+            // Get username from email
+            const username = meetingData.organizer.split('@')[0];
+
+            // Load AWS SDK first
+            await loadAwsSdk();
+
+            // Authenticate with Cognito (this will load Cognito SDK)
+            const token = await authenticateWithCognito();
+
+            // Configure AWS
+            AWS.config.update({
+                region: 'eu-north-1',
+                credentials: new AmazonCognitoIdentity.CognitoIdentityCredentials({
+                    IdentityPoolId: 'eu-north-1:98c07095-e731-4219-bebe-db4dab892ea8',
+                    Logins: {
+                        'cognito-idp.eu-north-1.amazonaws.com/eu-north-1_V9kLPNVXl': token
+                    }
+                })
+            });
+
+            // Wait for credentials
+            await new Promise((resolve, reject) => {
+                AWS.config.credentials.get(err => {
+                    if (err) reject(err);
+                    else resolve();
+                });
+            });
+
+            const s3 = new AWS.S3();
+
+            // Generate date range
+            const dates = getDateRange(meetingData.startDate, meetingData.endDate);
+
+            console.log(`📅 Saving OOTO for ${dates.length} days...`);
+
+            // Save OOTO for each date
+            const savePromises = dates.map(date => {
+                const ootoRecord = {
+                    username: username,
+                    date: date,
+                    startDate: meetingData.startDate,
+                    endDate: meetingData.endDate,
+                    startTime: meetingData.startTime || '00:00',
+                    endTime: meetingData.endTime || '23:59',
+                    reason: 'Out of Office',
+                    leaveType: 'planned',
+                    source: 'outlook-ooto-script',
+                    status: 'active',
+                    createdAt: new Date().toISOString(),
+                    createdBy: username
+                };
+
+                return s3.putObject({
+                    Bucket: 'real-time-databucket',
+                    Key: `ooto-status/${username}/${date}.json`,
+                    Body: JSON.stringify(ootoRecord),
+                    ContentType: 'application/json'
+                }).promise();
+            });
+
+            await Promise.all(savePromises);
+
+            console.log(`✅ OOTO saved to Aura S3 for ${dates.length} days`);
+            showNotification(`✅ Synced with Aura! (${dates.length} days)`, 'success');
+
+        } catch (error) {
+            console.error('❌ Error saving OOTO to S3:', error);
+            showNotification('⚠️ OOTO created in Outlook but failed to sync with Aura. You can mark it manually in Aura.', 'warning');
+        }
+    }
+
     // ============================================
     // INITIALIZE
     // ============================================
-    // Wait for page to fully load
+
+    // Create OOTO button and check for Aura parameters
     if (document.readyState === 'loading') {
         document.addEventListener('DOMContentLoaded', () => {
-            setTimeout(createOOTOButton, 1000); // Wait 1 second after DOM loads
+            console.log('📄 DOM loaded, initializing...');
+            setTimeout(async () => {
+                await OutlookDirectProvider.initialize();
+                // Only check for Aura parameters, don't create button
+                checkForAuraOOTOParameters();
+            }, 1000);
         });
     } else {
-        setTimeout(createOOTOButton, 1000); // Wait 1 second
+        console.log('📄 DOM already loaded, initializing...');
+        setTimeout(async () => {
+            await OutlookDirectProvider.initialize();
+            // Only check for Aura parameters, don't create button
+            checkForAuraOOTOParameters();
+        }, 1000);
     }
 
-    console.log('✅ Outlook OOTO button initialized');
+    console.log('✅ Outlook OOTO script loaded (v' + CURRENT_VERSION + ')');
+
+    // ============================================
+    // AUTO-CREATE OOTO FROM AURA PARAMETERS
+    // ============================================
+
+    // Check if URL has Aura OOTO parameters
+    function checkForAuraOOTOParameters() {
+        const urlParams = new URLSearchParams(window.location.search);
+
+        if (urlParams.get('aura_ooto') === 'true') {
+            console.log('🎯 Aura OOTO parameters detected!');
+
+            const ootoParams = {
+                startDate: urlParams.get('start_date'),
+                endDate: urlParams.get('end_date'),
+                isAllDay: urlParams.get('all_day') === '1',
+                startTime: urlParams.get('start_time'),
+                endTime: urlParams.get('end_time'),
+                subject: urlParams.get('subject'),
+                emailBody: urlParams.get('email_body'),
+                username: urlParams.get('username')
+            };
+
+            console.log('📋 OOTO Parameters:', ootoParams);
+
+            // Wait for page to be ready, then create OOTO
+            setTimeout(() => {
+                createOOTOFromAura(ootoParams);
+            }, 5000); // Wait 5 seconds for Outlook to fully load
+        }
+    }
+
+    // Create OOTO meetings from Aura parameters
+    let ootoCreationInProgress = false; // Prevent duplicate calls
+
+    async function createOOTOFromAura(params) {
+        // Prevent duplicate execution
+        if (ootoCreationInProgress) {
+            console.log('⚠️ OOTO creation already in progress, skipping duplicate call');
+            return;
+        }
+
+        ootoCreationInProgress = true;
+
+        try {
+            console.log('🚀 Creating OOTO from Aura parameters...');
+
+            // Show notification
+            showNotification('Creating OOTO meetings...', 'success');
+
+            // Try to initialize if not ready
+            if (!OutlookDirectProvider.isReady) {
+                console.log('🔧 OutlookDirectProvider not ready, attempting to initialize...');
+                try {
+                    await OutlookDirectProvider.initialize();
+                } catch (initError) {
+                    console.warn('⚠️ Initialize failed, will retry:', initError);
+                }
+            }
+
+            // Wait for OutlookDirectProvider to be ready
+            let attempts = 0;
+            while (!OutlookDirectProvider.isReady && attempts < 50) {
+                console.log('⏳ Waiting for OutlookDirectProvider...', attempts);
+                await new Promise(r => setTimeout(r, 200));
+                attempts++;
+            }
+
+            if (!OutlookDirectProvider.isReady) {
+                throw new Error('OutlookDirectProvider not ready after 50 attempts. Please refresh the page and try again.');
+            }
+
+            // Get user info
+            const userEmail = await OutlookDirectProvider.getUserEmail();
+            const userName = await OutlookDirectProvider.getUserName();
+
+            console.log(`👤 User: ${userName} (${userEmail})`);
+
+            // Parse dates
+            let start, end;
+
+            if (params.isAllDay) {
+                start = new Date(params.startDate + 'T00:00:00');
+                end = new Date(params.endDate + 'T23:59:59');
+            } else {
+                start = new Date(params.startDate + 'T' + params.startTime + ':00');
+                end = new Date(params.endDate + 'T' + params.endTime + ':00');
+            }
+
+            console.log(`� Creating OOTO from ${start} to ${end}`);
+
+            // Use email content from Aura parameters (no dialog needed)
+            const subject = params.subject || `OOTO | ${userName} | (${start.toLocaleDateString()} - ${end.toLocaleDateString()})`;
+            const emailContent = params.emailBody ? params.emailBody.replace(/\n/g, '<br>') : `Hello Team,<br>I will be out of office on the scheduled dates with no access to outlook, slack and chime.<br>For project related queries, please reach out to my supervisor.<br>Regards,<br>${userName}`;
+
+            console.log('📧 Using email content from Aura:', { subject, emailContent });
+
+            // Create OOTO meetings directly without showing dialog
+            await OutlookDirectProvider.createOOTOMeetings({
+                organizer: userEmail,
+                organizerName: userName,
+                start: start,
+                end: end,
+                emailContent: emailContent,
+                subject: subject
+            });
+
+            console.log('✅ OOTO meetings created successfully!');
+            showNotification('✅ OOTO created successfully!', 'success');
+
+            // Send success message back to Aura via localStorage
+            const successData = {
+                success: true,
+                startDate: params.startDate,
+                endDate: params.endDate,
+                timestamp: new Date().toISOString()
+            };
+
+            localStorage.setItem('aura_ooto_success', JSON.stringify(successData));
+            console.log('📤 Success message sent to Aura');
+
+            // Show success message to user
+            setTimeout(() => {
+                alert('✅ Out of Office created successfully!\n\nYou can close this tab and return to Aura.');
+            }, 1000);
+
+        } catch (error) {
+            console.error('❌ Error creating OOTO from Aura:', error);
+            showNotification('❌ Failed to create OOTO: ' + error.message, 'error');
+
+            // Send error message back to Aura
+            const errorData = {
+                success: false,
+                error: error.message,
+                timestamp: new Date().toISOString()
+            };
+
+            localStorage.setItem('aura_ooto_error', JSON.stringify(errorData));
+
+            alert('❌ Failed to create OOTO: ' + error.message + '\n\nPlease try again or create manually.');
+        } finally {
+            ootoCreationInProgress = false;
+        }
+    }
+
+    // Check for Aura parameters on page load (only once)
+    // Removed duplicate call - already called in DOMContentLoaded handler above
 
     // Debug: Check all localStorage keys for tokens
     console.log('🔍 Checking localStorage for tokens...');
@@ -869,5 +1446,4 @@ ${userName}
             console.log(`Found: ${key}`);
         }
     }
-
 })();
