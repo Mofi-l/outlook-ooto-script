@@ -1304,6 +1304,17 @@ ${userName}
         const urlParams = new URLSearchParams(window.location.search);
 
         if (urlParams.get('aura_ooto') === 'true') {
+            // Check if we've already processed this request
+            const processedKey = 'ooto_processed_' + urlParams.get('start_date') + '_' + urlParams.get('end_date');
+            const alreadyProcessed = sessionStorage.getItem(processedKey);
+
+            if (alreadyProcessed) {
+                console.log('⚠️ OOTO request already processed in this session, skipping');
+                // Clean URL parameters
+                cleanURLParameters();
+                return;
+            }
+
             console.log('🎯 Aura OOTO parameters detected!');
 
             const ootoParams = {
@@ -1319,10 +1330,32 @@ ${userName}
 
             console.log('📋 OOTO Parameters:', ootoParams);
 
+            // Mark as processed
+            sessionStorage.setItem(processedKey, 'true');
+
             // Wait for page to be ready, then create OOTO
             setTimeout(() => {
                 createOOTOFromAura(ootoParams);
             }, 5000); // Wait 5 seconds for Outlook to fully load
+        }
+    }
+
+    // Clean URL parameters after processing
+    function cleanURLParameters() {
+        const url = new URL(window.location.href);
+        const params = ['aura_ooto', 'start_date', 'end_date', 'all_day', 'start_time', 'end_time', 'subject', 'email_body', 'username'];
+        
+        let hasParams = false;
+        params.forEach(param => {
+            if (url.searchParams.has(param)) {
+                url.searchParams.delete(param);
+                hasParams = true;
+            }
+        });
+
+        if (hasParams) {
+            console.log('🧹 Cleaning URL parameters');
+            window.history.replaceState({}, document.title, url.pathname + url.search);
         }
     }
 
@@ -1403,6 +1436,9 @@ ${userName}
 
             console.log('✅ OOTO meetings created successfully!');
             showNotification('✅ OOTO created successfully!', 'success');
+
+            // Clean URL parameters to prevent re-creation on refresh
+            cleanURLParameters();
 
             // Send success message back to Aura via localStorage
             const successData = {
