@@ -49,7 +49,11 @@
                         const versionInfo = JSON.parse(response.responseText);
                         console.log('📦 Latest version:', versionInfo.version, 'Current:', CURRENT_VERSION);
 
-                        if (versionInfo.version !== CURRENT_VERSION) {
+                        // Compare versions properly (e.g., 0.3 > 0.2)
+                        const latestVersion = parseFloat(versionInfo.version);
+                        const currentVersion = parseFloat(CURRENT_VERSION);
+
+                        if (latestVersion > currentVersion) {
                             console.log('🆕 New version available!');
                             showUpdateNotification(versionInfo);
                         } else {
