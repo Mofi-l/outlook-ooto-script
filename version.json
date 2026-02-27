@@ -1,10 +1,8 @@
 {
-  "version": "0.2",
+  "version": "0.3",
   "description": "Added subject line editing and improved user name detection",
-  "releaseDate": "2026-02-19",
+  "releaseDate": "2026-02-27",
   "changelog": [
-    "✨ Users can now edit subject line before sending",
-    "🔧 Fixed user name detection using Outlook API",
-    "🐛 Bug fixes and improvements"
+    "✨Integrated into Aura"
   ]
 }
