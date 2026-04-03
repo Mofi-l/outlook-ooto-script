@@ -5,6 +5,7 @@
 // @description  Auto-create OOTO from Aura parameters
 // @author       @mofila
 // @match        https://outlook.office.com/*
+// @match        https://outlook.cloud.microsoft/*
 // @grant        unsafeWindow
 // @grant        GM_setValue
 // @grant        GM_getValue
@@ -30,12 +31,7 @@
 
     // Check for updates (non-blocking)
     function checkForUpdates() {
-        const lastCheck = GM_getValue('last_version_check', 0);
-        const now = Date.now();
-        const oneDayMs = 24 * 60 * 60 * 1000;
-
         console.log('🔍 Checking for updates...');
-        GM_setValue('last_version_check', now);
 
         const gmRequest = typeof GM !== 'undefined' && GM.xmlHttpRequest ? GM.xmlHttpRequest : GM_xmlhttpRequest;
 
