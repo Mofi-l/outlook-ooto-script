@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Outlook Set OOTO
 // @namespace    https://amazon.com/
-// @version      0.3
+// @version      0.4
 // @description  Auto-create OOTO from Aura parameters
 // @author       @mofila
 // @match        https://outlook.office.com/*
@@ -24,7 +24,7 @@
     console.log('[Outlook OOTO] Script loaded and marker set');
 
     // Version check configuration
-    const CURRENT_VERSION = '0.3';
+    const CURRENT_VERSION = '0.4';
     const VERSION_CHECK_URL = 'https://raw.githubusercontent.com/Mofi-l/outlook-ooto-script/main/version.json';
     const SCRIPT_INSTALL_URL = 'https://raw.githubusercontent.com/Mofi-l/outlook-ooto-script/main/outlook-set-ooto.user.js';
 
@@ -387,7 +387,7 @@
             return windowsTimeZone;
         },
 
-        async createOOTOMeetings({ organizer, organizerName, start, end, emailContent, subject }) {
+        async createOOTOMeetings({ organizer, organizerName, start, end, emailContent, subject, isAllDay, recipients = [], ccRecipients = [] }) {
             const token = await this.getToken();
 
             const headers = {
@@ -397,9 +397,27 @@
                 'x-owa-actionname': 'CreateCalendarItemAction'
             };
 
-            return Promise.all([
-                // Meeting invite for all-microsites@amazon.com (Free)
-                this.createMeetingWithInvite(headers, {
+            // Build attendee objects from email list
+            const toAttendees = (emails) => emails.map(email => ({
+                __type: 'AttendeeType:#Exchange',
+                Mailbox: {
+                    EmailAddress: email,
+                    RoutingType: 'SMTP',
+                    MailboxType: 'Mailbox',
+                    OriginalDisplayName: email
+                }
+            }));
+
+            // Fall back to all-microsites if no recipients specified
+            const resolvedRecipients = recipients.length > 0 ? recipients : ['all-microsites@amazon.com'];
+            const requiredAttendees = toAttendees(resolvedRecipients);
+            const optionalAttendees = ccRecipients.length > 0 ? toAttendees(ccRecipients) : [];
+
+            const promises = [];
+
+            // Only send invite if there are recipients
+            if (requiredAttendees.length > 0) {
+                const inviteItem = {
                     __type: 'CalendarItem:#Exchange',
                     Subject: subject,
                     Body: { BodyType: 'HTML', Value: emailContent },
@@ -410,30 +428,27 @@
                     FreeBusyType: 'Free',
                     ReminderIsSet: false,
                     ReminderMinutesBeforeStart: 0,
-                    RequiredAttendees: [{
-                        __type: 'AttendeeType:#Exchange',
-                        Mailbox: {
-                            EmailAddress: 'all-microsites@amazon.com',
-                            RoutingType: 'SMTP',
-                            MailboxType: 'Mailbox',
-                            OriginalDisplayName: 'all-microsites@amazon.com'
-                        }
-                    }]
-                }),
+                    RequiredAttendees: requiredAttendees
+                };
+                if (optionalAttendees.length > 0) {
+                    inviteItem.OptionalAttendees = optionalAttendees;
+                }
+                promises.push(this.createMeetingWithInvite(headers, inviteItem));
+            }
 
-                // Self calendar block (OOF) - no invite sent
-                this.createMeetingNoInvite(headers, {
-                    __type: 'CalendarItem:#Exchange',
-                    Subject: subject,
-                    Body: { BodyType: 'HTML', Value: emailContent },
-                    Sensitivity: 'Normal',
-                    IsResponseRequested: false,
-                    Start: start.toISOString(),
-                    End: end.toISOString(),
-                    FreeBusyType: 'OOF'
-                    // No RequiredAttendees - this creates a calendar block without inviting anyone
-                })
-            ]);
+            // Self calendar block (OOF) — always created, no invite sent
+            promises.push(this.createMeetingNoInvite(headers, {
+                __type: 'CalendarItem:#Exchange',
+                Subject: subject,
+                Body: { BodyType: 'HTML', Value: emailContent },
+                Sensitivity: 'Normal',
+                IsResponseRequested: false,
+                Start: start.toISOString(),
+                End: end.toISOString(),
+                FreeBusyType: 'OOF'
+            }));
+
+            return Promise.all(promises);
         },
 
         // Method for creating meeting WITH invite (for mofila@amazon.com)
@@ -1325,7 +1340,9 @@ ${userName}
                 endTime: urlParams.get('end_time'),
                 subject: urlParams.get('subject'),
                 emailBody: urlParams.get('email_body'),
-                username: urlParams.get('username')
+                username: urlParams.get('username'),
+                recipients: (urlParams.get('recipients') || '').split(',').map(s => s.trim()).filter(Boolean),
+                ccRecipients: (urlParams.get('cc_recipients') || '').split(',').map(s => s.trim()).filter(Boolean)
             };
 
             console.log('📋 OOTO Parameters:', ootoParams);
@@ -1343,7 +1360,7 @@ ${userName}
     // Clean URL parameters after processing
     function cleanURLParameters() {
         const url = new URL(window.location.href);
-        const params = ['aura_ooto', 'start_date', 'end_date', 'all_day', 'start_time', 'end_time', 'subject', 'email_body', 'username'];
+        const params = ['aura_ooto', 'start_date', 'end_date', 'all_day', 'start_time', 'end_time', 'subject', 'email_body', 'username', 'recipients', 'cc_recipients'];
         
         let hasParams = false;
         params.forEach(param => {
@@ -1431,7 +1448,9 @@ ${userName}
                 start: start,
                 end: end,
                 emailContent: emailContent,
-                subject: subject
+                subject: subject,
+                recipients: params.recipients || [],
+                ccRecipients: params.ccRecipients || []
             });
 
             console.log('✅ OOTO meetings created successfully!');
