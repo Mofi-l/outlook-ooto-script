@@ -1,7 +1,7 @@
 {
-  "version": "0.3",
-  "description": "Added subject line editing and improved user name detection",
-  "releaseDate": "2026-02-27",
+  "version": "0.4",
+  "description": "Sends OOTO to targeted users from now",
+  "releaseDate": "2026-04-03",
   "changelog": [
     "✨Integrated into Aura"
   ]
