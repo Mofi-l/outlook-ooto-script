@@ -168,6 +168,7 @@
 
     // Also set localStorage as backup (for same-domain detection)
     localStorage.setItem('ooto_script_installed', 'true');
+    localStorage.setItem('ooto_script_version', CURRENT_VERSION);
 
     GM_setValue('ooto_script_installed', 'true');
 
